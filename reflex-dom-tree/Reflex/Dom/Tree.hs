@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -11,18 +10,18 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -Werror=inaccessible-code #-}
-{-# OPTIONS_GHC -Werror=overlapping-patterns #-}
-
 module Reflex.Dom.Tree
   ( elTree
+  , pattern (:+)
   , nil
+  , pattern Nil
   , node
+  , pattern Node
   , widget
+  , pattern Widget
   ) where
 
 import Data.Functor.Identity (Identity(..))
@@ -32,11 +31,9 @@ import qualified Data.Text as T
 import Data.Void (Void)
 import Reflex.Dom.Core
 
-import Prelude hiding (div)
-
 data T (fruit :: *) (branches :: [(* -> *) -> * -> *]) (m :: * -> *) (sap :: *) where
-  Leaf :: m a -> T (Identity a) '[] m sap
-  Branch :: sap -> V branches T m sap -> T Void branches m sap
+  Spur :: m a -> T (Identity a) '[] m sap
+  Branches :: sap -> V branches T m sap -> T Void branches m sap
 
 deriving instance Functor (T fruit branches m)
 deriving instance Foldable (T fruit branches m)
@@ -60,27 +57,24 @@ elTree
   => T fruit xs m (Text, Dynamic t (Map Text Text))
   -> m (T fruit xs Identity (Element EventResult (DomBuilderSpace m) t))
 elTree = \case
-  Leaf x -> Leaf . Identity <$> x
-  Branch (tg, attrs) xs -> fmap (uncurry Branch) $ elDynAttr' tg attrs $ traverseVT elTree xs
+  Spur x -> Spur . Identity <$> x
+  Branches (tg, attrs) xs -> fmap (uncurry Branches) $ elDynAttr' tg attrs $ traverseVT elTree xs
 
 widget :: m a -> T (Identity a) '[] m sap
-widget = Leaf
+widget = Spur
 
--- Needed?
--- {-# COMPLETE Widget #-}
+-- {-# COMPLETE Widget #-} -- Needed?
 pattern Widget :: a -> T (Identity a) '[] Identity sap
-pattern Widget a = Leaf (Identity a)
+pattern Widget a = Spur (Identity a)
 
 node :: tag -> attrs -> V (x ': xs) T m (tag, attrs)-> T Void (x ': xs) m (tag, attrs)
-node = curry Branch
+node = curry Branches
 
--- Needed?
--- {-# COMPLETE Node #-}
+-- {-# COMPLETE Node #-} -- Needed?
 pattern Node :: sap -> V xs T Identity sap -> T Void xs Identity sap
-pattern Node node children = Branch node children
+pattern Node node children = Branches node children
 
--- Needed?
--- {-# COMPLETE Nil #-}
+-- {-# COMPLETE Nil #-} -- Needed?
 pattern Nil :: V '[] T Identity a
 pattern Nil = VNil
 
@@ -91,50 +85,3 @@ nil = VNil
 pattern (:+) :: T fruit xs m a -> V xss T m a -> V (T fruit xs : xss) T m a
 pattern h :+ t = VCons h t
 infixr 5 :+
-
-examples :: (DomBuilder t m, PostBuild t m) => m ()
-examples = do
-  t <- elTree $ node "div" mempty $ widget blank :+ nil
---  let t' = t :: Int
-
-  tt <- elTree $ widget blank
---  let tt' = tt :: Int
---  let Node _ _ = tt
-  let Widget () = tt
-
-
-  t0 <- elTree $ widget $ el "div" $ pure (0 :: Int)
-
-  let Widget zero = t0
-  text $ T.pack $ show zero
-
-  elTree (widget (el "div" blank)) >>= \case
-    Widget () -> pure ()
-
-  t1 <- elTree $ node "div" mempty $ widget (el "div" blank) :+ nil
-  let Node _div _ = t1
---  let Widget _ = t1
-
-  t2 <- elTree $ node "div" mempty
-    $ widget (el "img" blank)
-    :+ node "div" mempty (widget (el "br" blank) :+ nil)
-    :+ nil
-
-  let Node _div
-        (Widget ()
-         :+ Node __div (_br :+ Nil)
---         :+ Node _ _
-         :+ Nil) = t2
-
-  t4 <- elTree $ node "div" mempty
-    $  widget (el "img" blank)
-    :+ widget (el "br" $ pure (3 :: Int))
-    :+ nil
-
-  let
-    (Node _div
-     (Widget ()
-      :+ Widget three
-      :+ Nil)) = t4
-
-  text $ T.pack $ show $ three
