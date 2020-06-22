@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -10,40 +11,40 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -Werror=inaccessible-code #-}
 {-# OPTIONS_GHC -Werror=overlapping-patterns #-}
 
-module Reflex.Dom.Tree where
+module Reflex.Dom.Tree
+  ( elTree
+  , nil
+  , node
+  , widget
+  ) where
 
-import Data.Functor.Identity
+import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Void (Void)
 import Reflex.Dom.Core
 
 import Prelude hiding (div)
 
+data Payload a m b = Payload
 
-main :: IO ()
-main = putStrLn "Hello, Haskell!"
-
-data Payload a m b = Payload a
-
-data TTag
-  = TTagLeaf
-  | TTagBranch
-
-data T (tag :: TTag) (children :: [(* -> *) -> * -> *]) (m :: * -> *) (spine :: *) where
-  TLeaf :: m x -> T 'TTagLeaf '[Payload x] m spine
-  TBranch :: spine -> V (x ': xs) T m spine -> T 'TTagBranch (x ': xs) m spine
+data T (tag :: *) (children :: [(* -> *) -> * -> *]) (m :: * -> *) (spine :: *) where
+  TLeaf :: m a -> T a '[] m spine
+  TBranch :: spine -> V xs T m spine -> T Void xs m spine
 
 deriving instance Functor (T tag children m)
 deriving instance Foldable (T tag children m)
 deriving instance Traversable (T tag children m)
 
-data V (shape :: [(* -> *) -> * -> *]) (f :: k -> [(* -> *) -> * -> *] -> (* -> *) -> * -> *) (m :: * -> *) a where
+data V (shape :: [(* -> *) -> * -> *]) (f :: * -> [(* -> *) -> * -> *] -> (* -> *) -> * -> *) (m :: * -> *) a where
   VNil :: V '[] f m a
   VCons :: f t xs m a -> V xss f m a -> V (f t xs : xss) f m a
 
@@ -68,25 +69,25 @@ elTree = \case
     (n, cs) <- elAttr' tg attrs $ traverseVT elTree xs
     pure $ TBranch n cs
 
-leaf :: m x -> T 'TTagLeaf '[Payload x] m spine
-leaf = TLeaf
+widget :: m a -> T a '[] m spine
+widget = TLeaf
 
-branch :: spine -> V (x ': xs) T m spine -> T 'TTagBranch (x ': xs) m spine
-branch = TBranch
+node :: spine -> V (x ': xs) T m spine -> T Void (x ': xs) m spine
+node = TBranch
 
-{-# COMPLETE Leaf #-}
-pattern Leaf
-  :: x
-  -> T 'TTagLeaf '[Payload x] Identity spine
-pattern Leaf x = TLeaf (Identity x)
+{-# COMPLETE Widget #-}
+pattern Widget
+  :: a
+  -> T a '[] Identity spine
+pattern Widget a = TLeaf (Identity a)
 
 -- Needed?
--- {-# COMPLETE Branch #-}
-pattern Branch
+-- {-# COMPLETE Node #-}
+pattern Node
   :: spine
-  -> V (x ': xs) T Identity spine
-  -> T 'TTagBranch (x ': xs) Identity spine
-pattern Branch node children = TBranch node children
+  -> V xs T Identity spine
+  -> T Void xs Identity spine
+pattern Node node children = TBranch node children
 
 -- Needed?
 -- {-# COMPLETE Nil #-}
@@ -102,42 +103,49 @@ pattern (:+) :: T tag xs m a -> V xss T m a -> V (T tag xs : xss) T m a
 pattern h :+ t = VCons h t
 infixr 5 :+
 
-
--- This runs in a monad that can be run on the client or the server.
--- To run code in a pure client or pure server context, use one of the
--- `prerender` functions.
 examples :: DomBuilder t m => m ()
 examples = do
-  t0 <- elTree $ leaf $ el "div" $ pure (0 :: Int)
+  t <- elTree $ node ("div", mempty) $ widget blank :+ nil
+--  let t' = t :: Int
 
-  let Leaf zero = t0
+  tt <- elTree $ widget blank
+--  let tt' = tt :: Int
+--  let Node _ _ = tt
+  let Widget () = tt
+
+
+  t0 <- elTree $ widget $ el "div" $ pure (0 :: Int)
+
+  let Widget zero = t0
   text $ T.pack $ show zero
 
-  elTree (leaf (el "div" blank)) >>= \case
-    Leaf () -> pure ()
+  elTree (widget (el "div" blank)) >>= \case
+    Widget () -> pure ()
 
-  t1 <- elTree $ branch ("div", mempty) $ leaf (el "div" blank) :+ nil
-  let Branch _div _ = t1
+  t1 <- elTree $ node ("div", mempty) $ widget (el "div" blank) :+ nil
+  let Node _div _ = t1
+--  let Widget _ = t1
 
-  t2 <- elTree $ branch ("div", mempty)
-    $ leaf (el "img" blank)
-    :+ branch ("div", mempty) (leaf (el "br" blank) :+ nil)
+  t2 <- elTree $ node ("div", mempty)
+    $ widget (el "img" blank)
+    :+ node ("div", mempty) (widget (el "br" blank) :+ nil)
     :+ nil
 
-  let Branch _div
-        (Leaf ()
-         :+ Branch __div (_br :+ Nil)
+  let Node _div
+        (Widget ()
+         :+ Node __div (_br :+ Nil)
+--         :+ Node _ _
          :+ Nil) = t2
 
-  t4 <- elTree $ branch ("div", mempty)
-    $  leaf (el "img" blank)
-    :+ leaf (el "br" $ pure (3 :: Int))
+  t4 <- elTree $ node ("div", mempty)
+    $  widget (el "img" blank)
+    :+ widget (el "br" $ pure (3 :: Int))
     :+ nil
 
   let
-    (Branch _div
-     (Leaf ()
-      :+ Leaf three
+    (Node _div
+     (Widget ()
+      :+ Widget three
       :+ Nil)) = t4
 
   text $ T.pack $ show $ three
