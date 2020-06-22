@@ -19,6 +19,7 @@ module Reflex.Dom.Tree
   , nil
   , pattern Nil
   , node
+  , nodeClass
   , pattern Node
   , widget
   , pattern Widget
@@ -67,7 +68,7 @@ widget = Spur
 pattern Widget :: a -> T (Identity a) '[] Identity sap
 pattern Widget a = Spur (Identity a)
 
-node :: tag -> attrs -> V (x ': xs) T m (tag, attrs)-> T Void (x ': xs) m (tag, attrs)
+node :: tag -> attrs -> V xs T m (tag, attrs) -> T Void xs m (tag, attrs)
 node = curry Branches
 
 -- {-# COMPLETE Node #-} -- Needed?
@@ -85,3 +86,6 @@ nil = VNil
 pattern (:+) :: T fruit xs m a -> V xss T m a -> V (T fruit xs : xss) T m a
 pattern h :+ t = VCons h t
 infixr 5 :+
+
+nodeClass :: Reflex t => Text -> Text -> V xs T m (Text, Dynamic t (Map Text Text)) -> T Void xs m (Text, Dynamic t (Map Text Text))
+nodeClass tag cls = node tag $ pure $ "class" =: cls
