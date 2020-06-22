@@ -34,52 +34,54 @@ import Reflex.Dom.Core
 
 import Prelude hiding (div)
 
-data Payload a m b = Payload
+data T (payload :: *) (children :: [(* -> *) -> * -> *]) (m :: * -> *) (spine :: *) where
+  Leaf :: m a -> T (Identity a) '[] m spine
+  Branch :: spine -> V xs T m spine -> T Void xs m spine
 
-data T (tag :: *) (children :: [(* -> *) -> * -> *]) (m :: * -> *) (spine :: *) where
-  TLeaf :: m a -> T a '[] m spine
-  TBranch :: spine -> V xs T m spine -> T Void xs m spine
+--type Leaf a = T (Identity a) '[]
+--type Branch xs = T Void xs
 
-deriving instance Functor (T tag children m)
-deriving instance Foldable (T tag children m)
-deriving instance Traversable (T tag children m)
+deriving instance Functor (T payload children m)
+deriving instance Foldable (T payload children m)
+deriving instance Traversable (T payload children m)
 
 data V (shape :: [(* -> *) -> * -> *]) (f :: * -> [(* -> *) -> * -> *] -> (* -> *) -> * -> *) (m :: * -> *) a where
   VNil :: V '[] f m a
   VCons :: f t xs m a -> V xss f m a -> V (f t xs : xss) f m a
 
-deriving instance (forall tag xs. Functor (f tag xs m)) => Functor (V l f m)
-deriving instance (forall tag xs. Foldable (f tag xs m)) => Foldable (V l f m)
-deriving instance (forall tag xs. Traversable (f tag xs m)) => Traversable (V l f m)
+deriving instance (forall payload xs. Functor (f payload xs m)) => Functor (V l f m)
+deriving instance (forall payload xs. Foldable (f payload xs m)) => Foldable (V l f m)
+deriving instance (forall payload xs. Traversable (f payload xs m)) => Traversable (V l f m)
 
-mapVT :: (forall tag xs. T tag xs m a -> T tag xs m b) -> V shape T m a -> V shape T m b
+mapVT :: (forall payload xs. T payload xs m a -> T payload xs m b) -> V shape T m a -> V shape T m b
 mapVT f = \case
   VNil -> VNil
   VCons t xs -> VCons (f t) (mapVT f xs)
 
-traverseVT :: Applicative m => (forall tag xs. T tag xs m a -> m (T tag xs n b)) -> V xss T m a -> m (V xss T n b)
+traverseVT :: Applicative m => (forall payload xs. T payload xs m a -> m (T payload xs n b)) -> V xss T m a -> m (V xss T n b)
 traverseVT f = \case
   VNil -> pure VNil
   VCons t v -> VCons <$> f t <*> traverseVT f v
 
-elTree :: DomBuilder t m => T tag xs m (Text, Map Text Text) -> m (T tag xs Identity (Element EventResult (DomBuilderSpace m) t))
+elTree :: DomBuilder t m => T payload xs m (Text, Map Text Text) -> m (T payload xs Identity (Element EventResult (DomBuilderSpace m) t))
 elTree = \case
-  TLeaf x -> TLeaf . Identity <$> x
-  TBranch (tg, attrs) xs -> do
+  Leaf x -> Leaf . Identity <$> x
+  Branch (tg, attrs) xs -> do
     (n, cs) <- elAttr' tg attrs $ traverseVT elTree xs
-    pure $ TBranch n cs
+    pure $ Branch n cs
 
-widget :: m a -> T a '[] m spine
-widget = TLeaf
+widget :: m a -> T (Identity a) '[] m spine
+widget = Leaf
 
 node :: spine -> V (x ': xs) T m spine -> T Void (x ': xs) m spine
-node = TBranch
+node = Branch
 
-{-# COMPLETE Widget #-}
+-- Needed?
+-- {-# COMPLETE Widget #-}
 pattern Widget
   :: a
-  -> T a '[] Identity spine
-pattern Widget a = TLeaf (Identity a)
+  -> T (Identity a) '[] Identity spine
+pattern Widget a = Leaf (Identity a)
 
 -- Needed?
 -- {-# COMPLETE Node #-}
@@ -87,7 +89,7 @@ pattern Node
   :: spine
   -> V xs T Identity spine
   -> T Void xs Identity spine
-pattern Node node children = TBranch node children
+pattern Node node children = Branch node children
 
 -- Needed?
 -- {-# COMPLETE Nil #-}
@@ -99,7 +101,7 @@ nil :: V '[] T m a
 nil = VNil
 
 -- Mirrors https://developer.mozilla.org/en-US/docs/Web/CSS/Adjacent_sibling_combinator
-pattern (:+) :: T tag xs m a -> V xss T m a -> V (T tag xs : xss) T m a
+pattern (:+) :: T payload xs m a -> V xss T m a -> V (T payload xs : xss) T m a
 pattern h :+ t = VCons h t
 infixr 5 :+
 
